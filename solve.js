@@ -488,12 +488,14 @@ function findSingleStar(s, from, end) {
 
 const WS_TEST = /\s/;
 
-/** `s[a..b)` rendered inline into `out`; `env.link(target)` resolves a link's href. */
+/** `s[a..b)` rendered inline into `out`; `env.link(target)` resolves a link's href.
+ * Plain runs are pushed as slices: the scan below handles every HTML-special
+ * character (& < > " ') itself, so a run never holds one. */
 function inline(s, a, b, env, out) {
   let i = a;
   let run = a;
   const flush = (to) => {
-    if (to > run) out.push(escapeStr(s.slice(run, to)));
+    if (to > run) out.push(s.slice(run, to));
   };
   while (i < b) {
     const c = s.charCodeAt(i);
@@ -601,7 +603,7 @@ function renderMarkdown(cx, src, env) {
         lines.push(src.slice(i, end2));
         i = nl2 === -1 ? n : nl2 + 1;
       }
-      const cls = lang === '' ? '' : ` class="language-${escapeStr(lang)}"`;
+      const cls = lang === '' ? '' : ` class="language-${lang}"`;
       let code = `<pre><code${cls}>`;
       for (const l of lines) code += `${escapeStr(l)}\n`;
       code += '</code></pre>';
@@ -908,7 +910,10 @@ function wordsOf(text) {
   let n = 0;
   let inWord = false;
   for (let i = 0; i < text.length; i++) {
-    if (isWS(text.charCodeAt(i))) inWord = false;
+    const c = text.charCodeAt(i);
+    // The whitespace a body can hold: space, tab, LF, VT, FF, CR, and the
+    // non-ASCII whitespace set; anything else starts or continues a word.
+    if (c === 32 || (c >= 9 && c <= 13) || (c > 127 && isWS(c))) inWord = false;
     else if (!inWord) {
       inWord = true;
       n++;
@@ -943,6 +948,7 @@ export function run(input) {
     statics: [],
     bySource: new Map(),
     broken: new Set(),
+    resolveCache: new Map(),
     posts: [],
     tags: [],
     cards: new Map(),
@@ -973,8 +979,10 @@ export function run(input) {
 function readSources(cx) {
   const files = [...cx.input.files].sort((x, y) => byCodeUnits(x.path, y.path));
   for (const f of files) {
-    if (f.path.endsWith('.md')) cx.sources.push({ path: f.path, text: f.content.replace(/\r\n?/g, '\n') });
-    else cx.statics.push({ path: f.path, content: f.content });
+    if (f.path.endsWith('.md')) {
+      const content = f.content.indexOf('\r') === -1 ? f.content : f.content.replace(/\r\n?/g, '\n');
+      cx.sources.push({ path: f.path, text: content });
+    } else cx.statics.push({ path: f.path, content: f.content });
   }
 }
 
@@ -1042,7 +1050,15 @@ function markdown(cx) {
         const hash = target.indexOf('#');
         const rel = hash === -1 ? target : target.slice(0, hash);
         const frag = hash === -1 ? '' : target.slice(hash);
-        const path = rel === '' ? null : resolvePath(dir, rel);
+        let path = null;
+        if (rel !== '') {
+          const key = `${dir}\n${rel}`;
+          if (cx.resolveCache.has(key)) path = cx.resolveCache.get(key);
+          else {
+            path = resolvePath(dir, rel);
+            cx.resolveCache.set(key, path);
+          }
+        }
         if (path !== null && cx.bySource.has(path)) return `${cx.bySource.get(path).url}${frag}`;
         if (path !== null && staticPaths.has(path)) return `${cx.base}/${path}${frag}`;
         cx.broken.add(`broken-link ${s.path} -> ${target}`);
@@ -1151,12 +1167,13 @@ function layouts(cx) {
   const site = { title: cx.input.site.title, base_url: cx.base };
   const allTags = cx.tags.map((t) => ({ name: t.name, slug: t.slug, url: t.url, count: t.posts.length }));
   const recent = cx.posts.slice(0, cx.input.site.recent).map((p) => cx.cards.get(p));
+  const rootScope = { vars: { site, tags: allTags, recent }, parent: null };
   const ctx = { templates: cx.templates, escape: escapeStr };
   const render = (name, vars) => {
     const nodes = cx.templates.get(name);
     if (nodes === undefined) return null;
     const out = [];
-    renderNodes(nodes, { vars: { site, tags: allTags, recent, ...vars }, parent: null }, ctx, 0, out);
+    renderNodes(nodes, { vars, parent: rootScope }, ctx, 0, out);
     return out.join('');
   };
   for (const s of cx.sources) cx.output[`${s.outDir}/index.html`] = render(s.layout, { page: pageOf(cx, s) });
