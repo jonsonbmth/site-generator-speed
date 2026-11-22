@@ -585,49 +585,94 @@ function renderMarkdown(cx, src, env) {
     const nl = src.indexOf('\n', i);
     const end = nl === -1 ? n : nl;
     const next = nl === -1 ? n : nl + 1;
-    if (lineBlank(src, i, end)) {
+    // An empty line is blank. Otherwise the first character decides what
+    // the line can be: space/tab blank or paragraph; ` fence or paragraph;
+    // # heading or paragraph; -/* break, bullet or paragraph; > quote;
+    // digit ordered list or paragraph; anything else paragraph only.
+    if (end === i) {
       i = next;
       continue;
     }
-    const lang = fenceLang(src, i, end);
-    if (lang !== null) {
-      const lines = [];
-      i = next;
-      while (i < n) {
-        const nl2 = src.indexOf('\n', i);
-        const end2 = nl2 === -1 ? n : nl2;
-        if (fenceClose(src, i, end2)) {
-          i = nl2 === -1 ? n : nl2 + 1;
-          break;
-        }
-        lines.push(src.slice(i, end2));
-        i = nl2 === -1 ? n : nl2 + 1;
+    const c0 = src.charCodeAt(i);
+    if (c0 === 32 || c0 === 9) {
+      if (lineBlank(src, i, end)) {
+        i = next;
+        continue;
       }
-      const cls = lang === '' ? '' : ` class="language-${lang}"`;
-      let code = `<pre><code${cls}>`;
-      for (const l of lines) code += `${escapeStr(l)}\n`;
-      code += '</code></pre>';
-      blocks.push(code);
-      continue;
-    }
-    const h = headingInfo(src, i, end);
-    if (h !== null) {
-      const text = src.slice(h.textStart, h.textEnd);
-      const id = uniqueSlug(slugify(text, cx.slugMemo), ids);
-      const out = [];
-      inline(src, h.textStart, h.textEnd, env, out);
-      const html = out.join('');
-      blocks.push(`<h${h.depth} id="${id}">${html}</h${h.depth}>`);
-      if (h.depth === 2 || h.depth === 3) toc.push({ level: h.depth, id, html });
-      i = next;
-      continue;
-    }
-    if (isHR(src, i, end)) {
-      blocks.push('<hr>');
-      i = next;
-      continue;
-    }
-    if (src.charCodeAt(i) === 62) {
+    } else if (c0 === 96) {
+      const lang = fenceLang(src, i, end);
+      if (lang !== null) {
+        const lines = [];
+        i = next;
+        while (i < n) {
+          const nl2 = src.indexOf('\n', i);
+          const end2 = nl2 === -1 ? n : nl2;
+          if (fenceClose(src, i, end2)) {
+            i = nl2 === -1 ? n : nl2 + 1;
+            break;
+          }
+          lines.push(src.slice(i, end2));
+          i = nl2 === -1 ? n : nl2 + 1;
+        }
+        const cls = lang === '' ? '' : ` class="language-${lang}"`;
+        let code = `<pre><code${cls}>`;
+        for (const l of lines) code += `${escapeStr(l)}\n`;
+        code += '</code></pre>';
+        blocks.push(code);
+        continue;
+      }
+    } else if (c0 === 35) {
+      const h = headingInfo(src, i, end);
+      if (h !== null) {
+        const text = src.slice(h.textStart, h.textEnd);
+        const id = uniqueSlug(slugify(text, cx.slugMemo), ids);
+        const out = [];
+        inline(src, h.textStart, h.textEnd, env, out);
+        const html = out.join('');
+        blocks.push(`<h${h.depth} id="${id}">${html}</h${h.depth}>`);
+        if (h.depth === 2 || h.depth === 3) toc.push({ level: h.depth, id, html });
+        i = next;
+        continue;
+      }
+    } else if (c0 === 45 || c0 === 42) {
+      if (isHR(src, i, end)) {
+        blocks.push('<hr>');
+        i = next;
+        continue;
+      }
+      const li = listInfo(src, i, end);
+      if (li !== null) {
+        const isOrdered = li.ordered;
+        const start = li.start;
+        const items = [];
+        while (i < n) {
+          const nl2 = src.indexOf('\n', i);
+          const end2 = nl2 === -1 ? n : nl2;
+          const m = listInfo(src, i, end2);
+          if (m !== null && m.ordered === isOrdered) {
+            const [ta, tb] = trimRange(src, m.textStart, end2);
+            items.push([src.slice(ta, tb)]);
+            i = nl2 === -1 ? n : nl2 + 1;
+          } else if (isContinued(src, i, end2)) {
+            const [ta, tb] = trimRange(src, i, end2);
+            items[items.length - 1].push(src.slice(ta, tb));
+            i = nl2 === -1 ? n : nl2 + 1;
+          } else break;
+        }
+        const tag = isOrdered ? 'ol' : 'ul';
+        const open = isOrdered && start !== 1 ? `<ol start="${start}">` : `<${tag}>`;
+        let html = `${open}\n`;
+        for (const parts of items) {
+          const text = parts.join('\n');
+          const out = [];
+          inline(text, 0, text.length, env, out);
+          html += `<li>${out.join('')}</li>\n`;
+        }
+        html += `</${tag}>`;
+        blocks.push(html);
+        continue;
+      }
+    } else if (c0 === 62) {
       const parts = [];
       while (i < n) {
         const nl2 = src.indexOf('\n', i);
@@ -647,46 +692,58 @@ function renderMarkdown(cx, src, env) {
         blocks.push(`<blockquote>\n<p>${out.join('')}</p>\n</blockquote>`);
       }
       continue;
-    }
-    const li = listInfo(src, i, end);
-    if (li !== null) {
-      const isOrdered = li.ordered;
-      const start = li.start;
-      const items = [];
-      while (i < n) {
-        const nl2 = src.indexOf('\n', i);
-        const end2 = nl2 === -1 ? n : nl2;
-        const m = listInfo(src, i, end2);
-        if (m !== null && m.ordered === isOrdered) {
-          const [ta, tb] = trimRange(src, m.textStart, end2);
-          items.push([src.slice(ta, tb)]);
-          i = nl2 === -1 ? n : nl2 + 1;
-        } else if (isContinued(src, i, end2)) {
-          const [ta, tb] = trimRange(src, i, end2);
-          items[items.length - 1].push(src.slice(ta, tb));
-          i = nl2 === -1 ? n : nl2 + 1;
-        } else break;
+    } else if (c0 >= 48 && c0 <= 57) {
+      const li = listInfo(src, i, end);
+      if (li !== null) {
+        const start = li.start;
+        const items = [];
+        while (i < n) {
+          const nl2 = src.indexOf('\n', i);
+          const end2 = nl2 === -1 ? n : nl2;
+          const m = listInfo(src, i, end2);
+          if (m !== null && m.ordered) {
+            const [ta, tb] = trimRange(src, m.textStart, end2);
+            items.push([src.slice(ta, tb)]);
+            i = nl2 === -1 ? n : nl2 + 1;
+          } else if (isContinued(src, i, end2)) {
+            const [ta, tb] = trimRange(src, i, end2);
+            items[items.length - 1].push(src.slice(ta, tb));
+            i = nl2 === -1 ? n : nl2 + 1;
+          } else break;
+        }
+        const open = start !== 1 ? `<ol start="${start}">` : '<ol>';
+        let html = `${open}\n`;
+        for (const parts of items) {
+          const text = parts.join('\n');
+          const out = [];
+          inline(text, 0, text.length, env, out);
+          html += `<li>${out.join('')}</li>\n`;
+        }
+        html += '</ol>';
+        blocks.push(html);
+        continue;
       }
-      const tag = isOrdered ? 'ol' : 'ul';
-      const open = isOrdered && start !== 1 ? `<ol start="${start}">` : `<${tag}>`;
-      let html = `${open}\n`;
-      for (const parts of items) {
-        const text = parts.join('\n');
-        const out = [];
-        inline(text, 0, text.length, env, out);
-        html += `<li>${out.join('')}</li>\n`;
-      }
-      html += `</${tag}>`;
-      blocks.push(html);
-      continue;
     }
+    // A paragraph: this line and the lines after it up to a blank line, a
+    // fence, a heading or a thematic break. A quote, list or digit line does
+    // not end one, so only space/tab, `, #, - and * lines are checked.
     const [ta, tb] = trimRange(src, i, end);
     const parts = [src.slice(ta, tb)];
     i = next;
     while (i < n) {
       const nl2 = src.indexOf('\n', i);
       const end2 = nl2 === -1 ? n : nl2;
-      if (lineBlank(src, i, end2) || fenceLang(src, i, end2) !== null || headingInfo(src, i, end2) !== null || isHR(src, i, end2)) break;
+      if (end2 === i) break;
+      const c2 = src.charCodeAt(i);
+      if (c2 === 32 || c2 === 9) {
+        if (lineBlank(src, i, end2)) break;
+      } else if (c2 === 96) {
+        if (fenceLang(src, i, end2) !== null) break;
+      } else if (c2 === 35) {
+        if (headingInfo(src, i, end2) !== null) break;
+      } else if (c2 === 45 || c2 === 42) {
+        if (isHR(src, i, end2)) break;
+      }
       const [pa, pb] = trimRange(src, i, end2);
       parts.push(src.slice(pa, pb));
       i = nl2 === -1 ? n : nl2 + 1;
@@ -876,11 +933,12 @@ function renderNodes(nodes, scope, ctx, depth, out) {
       case 'for': {
         const xs = lookup(scope, n.path);
         if (!Array.isArray(xs)) break;
-        const vars = { loop: { index: 0, first: false, last: false, length: xs.length } };
+        const vars = {};
+        const loop = { index: 0, first: false, last: false, length: xs.length };
         const child = { vars, parent: scope };
-        const loop = vars.loop;
         for (let k = 0; k < xs.length; k++) {
           vars[n.name] = xs[k];
+          vars.loop = loop;
           loop.index = k + 1;
           loop.first = k === 0;
           loop.last = k === xs.length - 1;
