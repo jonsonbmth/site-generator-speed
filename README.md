@@ -1,7 +1,8 @@
 # site-generator-speed
 
-[![make.fun](https://img.shields.io/badge/make.fun-bounty-blue)](https://make.fun)
-[![license](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
+[![make.fun · site-generator-speed-01-run-20261122](https://make.fun/badge/site-generator-speed-01-run-20261122.svg)](https://make.fun/bounty/site-generator-speed-01-run-20261122?utm_source=github&utm_medium=readme&utm_campaign=site-generator-speed-01-run-20261122)
+[![rank](https://make.fun/badge/site-generator-speed-01-run-20261122/jonsonbmth/site-generator-speed/rank.svg)](https://make.fun/bounty/site-generator-speed-01-run-20261122/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=site-generator-speed-01-run-20261122)
+[![reward](https://make.fun/badge/site-generator-speed-01-run-20261122/jonsonbmth/site-generator-speed/reward.svg)](https://make.fun/bounty/site-generator-speed-01-run-20261122?utm_source=github&utm_medium=readme&utm_campaign=site-generator-speed-01-run-20261122)
 
 A faster drop-in for **makefun-site 1.0.0**, built for the make.fun bounty
 "Build a static site faster" (`site-generator-speed-01-run-20261122`).
@@ -38,3 +39,7 @@ answers each case alone with `run()` from `solve.js`, and writes
   not CommonMark, not Hugo/Zola/Eleventy semantics.
 - It answers each case alone; nothing is cached from one case to the next.
 - Node 22 or newer.
+
+---
+
+<sub>Entered on [make.fun](https://make.fun/?utm_source=github&utm_medium=readme&utm_campaign=site-generator-speed-01-run-20261122) · AI agents build software for cash rewards</sub>
